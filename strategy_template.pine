@@ -1,0 +1,408 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © taghalloby
+
+//@version=5
+strategy("Strategy Template", overlay = true, precision = 7, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500, commission_value = 0.05, initial_capital = 100, pyramiding = 1, calc_on_every_tick = true)
+
+ma(source, length, _type) =>
+    switch _type
+        "SMA" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "SMMA (RMA)" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        "VWMA" => ta.vwma(source, length)
+
+noColor = color.new(color.black, 100)
+
+// --------------------- MAs ---------------------
+
+ma1Type = input.string("EMA", "First MA type", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = "MAs")
+ma1Length = input.int(10, "First MA length", group = "MAs")
+ma1Color = input.color(color.red, "First MA color", group = "MAs")
+ma1Source = input.source(close, "First MA source", group = "MAs")
+showMa1 = input.bool(true, "Show First MA", group = "MAs")
+
+
+ma2Type = input.string("EMA", "Second MA type", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = "MAs")
+ma2Length = input.int(50, "Second MA length", group = "MAs")
+ma2Color = input.color(color.white, "Second MA color", group = "MAs")
+ma2Source = input.source(close, "Second MA source", group = "MAs")
+showMa2 = input.bool(true, "Show Second MA", group = "MAs")
+
+ma1 = ma(ma1Source, ma1Length, ma1Type)
+ma2 = ma(ma2Source, ma2Length, ma2Type)
+
+plot(ma1, title = "ma1", color = ma1Color, display = showMa1 ? display.pane : display.none)
+plot(ma2, title = "ma2", color = ma2Color, display = showMa2 ? display.pane : display.none)
+
+// --------------------- ZigZag ---------------------
+
+zigzag (float _low=low, float _high=high, int depth=12, int deviation=5, int backstep=2) =>
+    hr = ta.barssince(not (_high[-ta.highestbars(depth)] - _high > deviation*syminfo.mintick)[1])
+    lr = ta.barssince(not (_low - _low[-ta.lowestbars(depth)] > deviation*syminfo.mintick)[1])
+    direction = ta.barssince(not (hr > lr)) >= backstep? -1: 1
+
+    var chart.point z = chart.point.now(_low)
+    var chart.point z1 = chart.point.now(_low)
+    var chart.point z2 = chart.point.now(_high)
+
+    bool directionChanged = ta.change(direction)
+    if directionChanged
+        z1 := z2.copy()
+        z2 := z.copy()
+
+    if direction > 0
+        if  _high > z2.price
+            z2 := chart.point.now(_high)
+            z := chart.point.now(_low)
+        if _low < z.price
+            z := chart.point.now(_low)
+
+    if direction < 0
+        if _low < z2.price
+            z2 := chart.point.now(_low)
+            z := chart.point.now(_high)
+        if _high > z.price
+            z := chart.point.now(_high)
+
+    [direction, z1, z2]
+    
+// [direction, z1, z2] = request.security(syminfo.tickerid, input.timeframe("240", "Resolution"), zigzag())
+// bgcolor(direction<0? color.rgb(255, 82, 82, 80): color.rgb(0, 230, 119, 80))
+
+// line zz = line.new(z1.time, z1.price, z2.time, z2.price, xloc.bar_time, width=3)
+// if direction==direction[1]
+//     line.delete(zz[1])
+
+Depth = input.int(2, 'Depth', minval=1, step=1, group="ZigZag")
+Deviation = input.int(2, 'Deviation', minval=1, step=1, group="ZigZag")
+Backstep = input.int(2, 'Backstep', minval=2, step=1, group="ZigZag")
+line_thick = input.int(1, 'Line Thickness', minval=1, maxval=4, group="ZigZag")
+labels = input(80, "Labels Transparency", group="ZigZag")
+labelsOffset = input(0, "Labels Offset", group="ZigZag")
+upcolor = input(color.blue, 'Bull Color', group="ZigZag")
+dncolor = input(color.orange, 'Bear Color', group="ZigZag")
+lines = input(30, "Lines Transparency", group="ZigZag")
+background = input(90, "Background Transparency", group="ZigZag")
+showZigZag = input.bool(false, "Show ZigZag", group="ZigZag")
+label_size = switch input.int(1, "Label SIze", minval=1, maxval=5, group="ZigZag")
+    1 => size.tiny
+    2 => size.small
+    3 => size.normal
+    4 => size.large
+    5 => size.huge
+repaint = input(false, 'Repaint Levels', group="ZigZag")
+extend = input(false, "Extend ZigZag", group="ZigZag")
+
+[zigzagDirection, z1, z2] = zigzag(low, high, Depth, Deviation, Backstep)
+string nowPointText = ""
+var float lastPoint = z1.price[1]
+if bool(ta.change(zigzagDirection))
+    lastPoint := z1.price[1]
+
+line zz = na
+label point = na
+
+if showZigZag
+    if repaint
+        zz := line.new(z1, z2, xloc.bar_time, extend? extend.right: extend.none, color.new(zigzagDirection>0? upcolor: dncolor, lines), width=line_thick)
+        nowPointText := zigzagDirection<0? (z2.price<lastPoint? "LL": "HL"): (z2.price>lastPoint? "HH": "LH")
+        t = z2.copy()
+        t.price := zigzagDirection < 0? (z2.price<lastPoint? t.price - labelsOffset : t.price - labelsOffset): (z2.price>lastPoint? t.price + labelsOffset : t.price + labelsOffset)
+        point := label.new(t, nowPointText, xloc.bar_time, yloc.price, color.new(zigzagDirection<0? upcolor: dncolor, labels), zigzagDirection>0? label.style_label_down: label.style_label_up, color.new(zigzagDirection>0? upcolor: dncolor, labels), label_size)
+        if zigzagDirection == zigzagDirection[1]
+            line.delete(zz[1])
+            label.delete(point[1])
+        else
+            line.set_extend(zz[1], extend.none)
+    else
+        if zigzagDirection != zigzagDirection[1]
+            zz := line.new(z1[1], z2[1], xloc.bar_time, extend.none, color.new(zigzagDirection>0? upcolor: dncolor, lines), width=line_thick)
+            nowPointText := zigzagDirection[1]<0? (z2.price[1]<lastPoint[1]? "LL": "HL"): (z2.price[1]>lastPoint[1]? "HH": "LH")
+            point := label.new(z2[1], nowPointText, xloc.bar_time, yloc.price, color.new(zigzagDirection[1]<0? upcolor: dncolor, labels), zigzagDirection[1]>0? label.style_label_down: label.style_label_up, color.new(zigzagDirection[1]>0? upcolor: dncolor, labels), label_size)
+
+// bgcolor(showZigZag ? (zigzagDirection < 0? color.new(dncolor, background): color.new(upcolor, background)) : noColor, title='Direction Background')
+
+plotarrow(zigzagDirection, title = "zigzagDirection" , display = showZigZag ? display.status_line : display.none)
+
+// --------------------- ATR ---------------------
+
+atrLength = input.int(14, "ATR Length", minval = 1, group = "ATR")
+atrMultiplier = input.float(2, "ATR Multiplier", minval = 1, group = "ATR")
+tf = input.timeframe("", title = "ATR Time Frame", group = "ATR")
+showAtr = input.bool(false, title = "Show ATR in status line", group = "ATR")
+atrColor = input.color(color.blue, title = "ATR color", group = "ATR")
+
+atr = request.security(syminfo.tickerid, tf, ta.atr(atrLength))
+
+plot(atr, title = "ATR", color = atrColor, display = showAtr ? display.status_line : display.none)
+
+// --------------------- Super trend ---------------------
+
+atrPeriod = input.int(20, "ATR Length", minval = 1, group = "Super Trend")
+factor = input.float(2.0, "Factor", minval = 0.01, step = 1, group = "Super Trend")
+showSuperTrend = input.bool(false, title = "Show Super Trend", group = "Super Trend")
+
+[supertrend, direction] = ta.supertrend(factor, atrPeriod)
+
+supertrend := barstate.isfirst ? na : supertrend
+upTrend = plot(direction < 0 ? supertrend : na, "Up Trend", color = color.green, style = plot.style_linebr, display = showSuperTrend ? display.pane : display.none)
+downTrend =  plot(direction < 0 ? na : supertrend, "Down Trend", color = color.red, style = plot.style_linebr, display = showSuperTrend ? display.pane : display.none)
+bodyMiddle = plot(barstate.isfirst ? na : (open + close) / 2, "Body Middle", display = display.none)
+
+fill(bodyMiddle, upTrend, color = showSuperTrend ? color.new(color.green, 90) : noColor, fillgaps = false)
+fill(bodyMiddle, downTrend, color = showSuperTrend ? color.new(color.red, 90) : noColor, fillgaps = false)
+
+// --------------------- RSI ---------------------
+
+rsiSource = input.source(close, title = "Source", group = "RSI")
+rsiLength = input.int(14, title = "Length", group = "RSI")
+rsiUpperBand = input.float(80, title = "Upper Band", group = "RSI")
+rsiLowerBand = input.float(20, title = "Lower Band", group = "RSI")
+showRsi = input.bool(false, title = "Show RSI in status line", group = "RSI")
+rsiColor = input.color(color.blue, title = "RSI color", group = "RSI")
+
+rsiMaType = input.string("WMA", "Rsi MA type", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = "RSI")
+rsiMaLength = input.int(14, "Rsi MA length", group = "RSI")
+showRsiMa = input.bool(false, title = "Show RSI MA in status line", group = "RSI")
+rsiMaColor = input.color(color.blue, title = "RSI Ma color", group = "RSI")
+
+rsi = ta.rsi(rsiSource, rsiLength)
+plot(rsi, title = "RSI", color = rsiColor, display = showRsi ? display.status_line : display.none)
+
+rsiMa = ma(rsi, rsiMaLength, rsiMaType)
+plot(rsiMa, title = "RSI MA", color = rsiMaColor, display = showRsiMa ? display.status_line : display.none)
+
+// --------------------- Stochastic ---------------------
+
+periodK = input.int(14, title="%K Length", minval=1, group = "Stochastic")
+smoothK = input.int(3, title="%K Smoothing", minval=1, group = "Stochastic")
+periodD = input.int(3, title="%D Smoothing", minval=1, group = "Stochastic")
+showK = input.bool(false, title = "Show K in status line", group = "Stochastic")
+kColor = input.color(color.blue, title = "K color", group = "Stochastic")
+
+k = ta.sma(ta.stoch(close, high, low, periodK), smoothK)
+d = ta.sma(k, periodD)
+
+plot(rsi, title = "K", color = kColor, display = showK ? display.status_line : display.none)
+
+// --------------------- MACD ---------------------
+
+fast_length = input(title = "Fast Length", defval = 12, group = "MACD")
+slow_length = input(title = "Slow Length", defval = 26, group = "MACD")
+macdSource = input(title = "Source", defval = close, group = "MACD")
+signal_length = input.int(title = "Signal Smoothing",  minval = 1, maxval = 50, defval = 9, display = display.data_window, group = "MACD")
+sma_source = input.string(title = "Oscillator MA Type",  defval = "EMA", options = ["SMA", "EMA"], display = display.data_window, group = "MACD")
+sma_signal = input.string(title = "Signal Line MA Type", defval = "EMA", options = ["SMA", "EMA"], display = display.data_window, group = "MACD")
+
+fast_ma = sma_source == "SMA" ? ta.sma(macdSource, fast_length) : ta.ema(macdSource, fast_length)
+slow_ma = sma_source == "SMA" ? ta.sma(macdSource, slow_length) : ta.ema(macdSource, slow_length)
+macd = fast_ma - slow_ma
+signal = sma_signal == "SMA" ? ta.sma(macd, signal_length) : ta.ema(macd, signal_length)
+hist = macd - signal
+
+// --------------------- Bolinger Bands ---------------------
+
+
+length = input.int(10, minval=1, group = "Bolinger Bands")
+maType = input.string("WMA", "Basis MA Type", options = ["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group = "Bolinger Bands")
+bolingetBandsSource = input.source(close, title = "Source", group = "Bolinger Bands")
+mult = input.float(0.8, minval=0.001, maxval=50, title="StdDev", group = "Bolinger Bands")
+offset = input.int(0, "Offset", minval = -500, maxval = 500, display = display.data_window, group = "Bolinger Bands")
+showBolingerBands = input.bool(false, "Show Bolinger Bands", display = display.data_window, group = "Bolinger Bands")
+
+basis = ma(bolingetBandsSource, length, maType)
+dev = mult * ta.stdev(bolingetBandsSource, length)
+upper = basis + dev
+lower = basis - dev
+plot(basis, "Basis", color = #FF6D00, offset = offset, display = showBolingerBands ? display.all : display.none)
+p1 = plot(upper, "Upper", color = #2962FF, offset = offset, display = showBolingerBands ? display.all : display.none)
+p2 = plot(lower, "Lower", color = #2962FF, offset = offset, display = showBolingerBands ? display.all : display.none)
+fill(p1, p2, title = "Background", color = color.rgb(33, 150, 243, 95), display = showBolingerBands ? display.all : display.none)
+
+// --------------------- Risk Management ---------------------
+
+margin = input.float(100, "Margin", group = "Risk Management")
+
+slPercentage = input.float(2, title = "SL Percentage", group = "Risk Management")
+rrRatio = input.float(2, title = "Risk/Reward Ratio", group = "Risk Management")
+
+slCalculationMethod = input.string("ATR", title = "SL Calculation Method", options = ["Manual", "Minimum", "Super Trend", "ATR"], group = "Risk Management")
+useMinimumByDefault = input.bool(false, title = "Use Minimum By Default", tooltip = "Uses Minimum method if current method is not acceptable.", group = "Risk Management")
+
+userSLPriceDifference = input.float(800, title = "SL Price Difference", tooltip = "It is not considered if less than minimum sl difference, based on the commission.", group = "Risk Management")
+
+slStopColor = input.color(color.red, title = "SL Color", group = "Risk Management")
+
+brokerCommissionPercentage = input.float(0.1, minval = 0, title = "Broker Commission Percentage", group = "Risk Management")
+maximumCommissionPercentage = input.float(10, minval = 0, title = "Maximum Commission Percentage", tooltip = "The percentage of loss that is payed as commission.", group = "Risk Management")
+
+useConstantLeverage = input.bool(false, title = "Use Constant leverage", group = "Risk Management")
+constantLeverage = input.float(10, title = "Constant leverage", group = "Risk Management")
+showMaximumLeverage = input.bool(false, title = "Show Maximum Leverage", group = "Risk Management")
+
+showRiskManagementFailures = input.bool(false, title = "Show Risk Management Failures", group = "Risk Management")
+
+sl = slPercentage / 100.0
+brokerCommissionRatio = brokerCommissionPercentage / 100.0
+maximumCommissionRatio = maximumCommissionPercentage / 100.0
+
+float maximumLeverage = na
+if brokerCommissionRatio != 0
+    maximumLeverage := sl * maximumCommissionRatio / brokerCommissionRatio
+
+calculateRiskManagement(entryPrice, bool long) =>
+    float minimumSLDifference = 0.0
+    if brokerCommissionRatio != 0
+        minimumSLDifference := sl * entryPrice / maximumLeverage
+        
+    isRiskManagementOk = false
+    float leverage = na
+    series float tpPriceDifference = na
+    series float slPriceDifference = na
+
+    if slCalculationMethod == "Manual" and userSLPriceDifference >= minimumSLDifference
+        manualExpectedLeverage = sl * entryPrice / userSLPriceDifference
+        leverage := not na(maximumLeverage) ? math.min(maximumLeverage, manualExpectedLeverage) : manualExpectedLeverage
+        isRiskManagementOk := true
+        slPriceDifference := userSLPriceDifference
+
+    float suprtTrendDelta = 0.0
+    if long
+        suprtTrendDelta := entryPrice - (direction < 0 ? supertrend : 0)
+    else
+        suprtTrendDelta := (direction > 0 ? supertrend : 0) - entryPrice
+
+    if slCalculationMethod == "Super Trend" and suprtTrendDelta >= minimumSLDifference
+        manualExpectedLeverage = sl * entryPrice / suprtTrendDelta
+        leverage := not na(maximumLeverage) ? math.min(maximumLeverage, manualExpectedLeverage) : manualExpectedLeverage
+        isRiskManagementOk := true
+        slPriceDifference := suprtTrendDelta
+
+    float atrDelta = atr * atrMultiplier
+    if slCalculationMethod == "ATR" and atrDelta >= minimumSLDifference
+        manualExpectedLeverage = sl * entryPrice / atrDelta
+        leverage := not na(maximumLeverage) ? math.min(maximumLeverage, manualExpectedLeverage) : manualExpectedLeverage
+        isRiskManagementOk := true
+        slPriceDifference := atrDelta
+
+    if brokerCommissionRatio == 0 and slCalculationMethod == "Minimum"
+        log.error("invalid SL calculation method seleceted")
+
+    if slCalculationMethod == "Minimum" or (useMinimumByDefault and not isRiskManagementOk)
+        leverage := maximumLeverage
+        isRiskManagementOk := true
+        slPriceDifference := minimumSLDifference
+
+    tpPriceDifference := slPriceDifference * rrRatio
+
+    if useConstantLeverage
+        leverage := constantLeverage
+
+    [isRiskManagementOk, leverage, tpPriceDifference, slPriceDifference, minimumSLDifference]
+
+plot(nz(maximumLeverage), title = "maximumLeverage", display = showMaximumLeverage ? display.status_line : display.none)
+
+// --------------------- Strategy ---------------------
+
+isLong(string c) =>
+    switch c
+        "MACD and Stochastic" => ta.crossover(macd, signal) and k <= 20// and macd < -100 //and rsi <= rsiUpperBand
+        "MAs and Stochastic" => ma1 > ma2 and k >= 80 and rsi <= rsiUpperBand and rsi > rsiMa
+        "Super Trend" => direction < 0
+        "RSI" => rsi > rsiUpperBand
+        "All" => true
+        "No Condition" => false
+        => false
+
+isShort(string c) =>
+    switch c
+        "MACD and Stochastic" => ta.crossunder(macd, signal) and macd < 100 //and rsi >= rsiLowerBand
+        "MAs and Stochastic" => ma1 < ma2 and k <= 20 and rsi >= rsiLowerBand and rsi < rsiMa
+        "Super Trend" => direction > 0
+        "RSI" => rsi < rsiLowerBand
+        "All" => true
+        "No Condition" => false
+        => false
+
+shouldClosePositions(string c) =>
+    switch c
+        "Risk/Reward Ratio" => ta.crossunder(macd, signal) and macd < 100 //and rsi >= rsiLowerBand
+        => false
+
+shortConditionName = input.string("No Condition", title = "shortConditionName", options = ["MAs and Stochastic", "MACD and Stochastic", "Super Trend", "RSI", "No Condition", "All" ], group = "Strategy")
+longConditionName = input.string("No Condition", title = "longConditionName", options = ["MAs and Stochastic", "MACD and Stochastic", "Super Trend", "RSI", "No Condition", "All" ], group = "Strategy")
+
+exitStrategy = input.string("Risk/Reward Ratio", title = "longConditionName", options = ["Risk/Reward Ratio" ], group = "Strategy")
+areParallelPositionsAllowed = input.bool(false, title = "Are Parallel Positions Allowed", group = "Strategy")
+
+useDate = input.bool(false, title = "Use Date", group = "Strategy")
+startDate = input.time(timestamp("2017"), group = "Strategy")
+endDate = input.time(timestamp("19 Feb 2024 20:15 +0000"), group = "Strategy")
+
+allowSaturdays = input.bool(false, title = "Allow Saturdays", group = "Strategy")
+allowSundays = input.bool(false, title = "Allow Sundays", group = "Strategy")
+
+showTPSL = input.bool(true, title = "Show TP/SL prices", group = "Strategy")
+tpslTransparency = input.float(90, minval = 0, maxval = 100, title = "TP/SL Transparency", group = "Strategy")
+
+isShort = isShort(shortConditionName)
+isLong = isLong(longConditionName)
+
+entryPrice = close
+
+var longRiskManagementFialures = array.new_int()
+var shortRiskManagementFialures = array.new_int()
+
+float tpPrice = na
+float slPrice = na
+
+if shouldClosePositions(exitStrategy)
+    strategy.close_all(immediately = true)
+else
+    if not useDate or (useDate and time >= startDate and time <= endDate)
+        if allowSaturdays or (not allowSaturdays and dayofweek(time) != dayofweek.saturday)
+            if allowSundays or (not allowSundays and dayofweek(time) != dayofweek.sunday)
+                id = strategy.opentrades + strategy.closedtrades
+
+                if areParallelPositionsAllowed or (not areParallelPositionsAllowed and strategy.position_size == 0)
+                    if isLong
+                        [isRiskManagementOk, leverage, tpPriceDifference, slPriceDifference, minimumSLDifference] = calculateRiskManagement(entryPrice, true)
+                        tpPrice := entryPrice + tpPriceDifference
+                        slPrice := entryPrice - slPriceDifference
+
+                        if not isRiskManagementOk
+                            array.push(longRiskManagementFialures, 0)
+
+                        if isRiskManagementOk
+                            strategy.order("long" + str.tostring(id), strategy.long, (margin * leverage) / entryPrice, limit = entryPrice, oca_name = "long_oca" + str.tostring(id), oca_type = strategy.oca.none)
+
+                            if exitStrategy == "Risk/Reward Ratio"
+                                strategy.exit("long exit" + str.tostring(id), "long" + str.tostring(id), qty = (margin * leverage) / entryPrice, stop = slPrice, limit = tpPrice, comment_loss = "-------" + str.tostring(id), comment_profit = "+++++++" + str.tostring(id), oca_name = "long_oca" + str.tostring(id))
+                            else
+                                strategy.exit("long exit" + str.tostring(id), "long" + str.tostring(id), qty = (margin * leverage) / entryPrice, stop = slPrice, comment_loss = "-------" + str.tostring(id), comment_profit = "+++++++" + str.tostring(id), oca_name = "long_oca" + str.tostring(id))
+
+                    if isShort
+                        [isRiskManagementOk, leverage, tpPriceDifference, slPriceDifference, minimumSLDifference] = calculateRiskManagement(entryPrice, false)
+                        tpPrice := entryPrice + tpPriceDifference
+                        slPrice := entryPrice - slPriceDifference
+
+                        if not isRiskManagementOk
+                            array.push(shortRiskManagementFialures, 0)
+
+                        if isRiskManagementOk
+                            strategy.order("short" + str.tostring(id), strategy.short, (margin * leverage) / entryPrice, limit = entryPrice, oca_name = "short_oca" + str.tostring(id), oca_type = strategy.oca.none)
+
+                            if exitStrategy == "Risk/Reward Ratio"
+                                strategy.exit("short exit" + str.tostring(id), "short" + str.tostring(id), qty = (margin * leverage) / entryPrice, stop = slPrice, limit = tpPrice, comment_loss = "-------" + str.tostring(id), comment_profit = "+++++++" + str.tostring(id), oca_name = "short_oca" + str.tostring(id))
+                            else
+                                strategy.exit("short exit" + str.tostring(id), "short" + str.tostring(id), qty = (margin * leverage) / entryPrice, stop = slPrice, comment_loss = "-------" + str.tostring(id), comment_profit = "+++++++" + str.tostring(id), oca_name = "short_oca" + str.tostring(id))
+
+plot(longRiskManagementFialures.size(), title = "longRiskManagementFialures", color = color.red, display = showRiskManagementFailures ? display.status_line : display.none)
+plot(longRiskManagementFialures.size(), title = "longRiskManagementFialures", color = color.red, display = showRiskManagementFailures ? display.status_line : display.none)
+
+TP = plot(tpPrice, color = color.new(color.green, tpslTransparency), display = showTPSL ? display.pane : display.none)
+plot(isLong or isShort ? close : na, color = color.gray, display = showTPSL ? display.pane : display.none)
+SL = plot(slPrice, color = color.new(color.red, tpslTransparency), display = showTPSL ? display.pane : display.none)
+
+fill(TP, SL, color = showTPSL ? (isLong ? color.new(color.green, tpslTransparency) : color.new(color.red, tpslTransparency)) : noColor, fillgaps = false, display = showTPSL ? display.all : display.none)
